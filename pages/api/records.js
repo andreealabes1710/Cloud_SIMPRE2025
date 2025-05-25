@@ -1,75 +1,40 @@
-import { sendMethodNotAllowed, sendOk } from '@/utils/apiMethods.js';
-import { getCollection } from '@/utils/functions';
-import { ObjectId } from 'mongodb';
+import { connectToDatabase } from "@/lib/mongodb";
 
-const COLLECTION_NAME = 'records';
-
-const getRecords = async () => {
-  const collection = await getCollection(COLLECTION_NAME);
-  return collection.find({}).toArray();
-};
-
-const getRecord = async (id) => {
-  if (!ObjectId.isValid(id)) return null;
-  const collection = await getCollection(COLLECTION_NAME);
-  return collection.findOne({ _id: new ObjectId(id) });
-};
-
-const postRecord = async (record) => {
-  const collection = await getCollection(COLLECTION_NAME);
-  return collection.insertOne(record);
-};
-
-const putRecord = async (record) => {
-  const collection = await getCollection(COLLECTION_NAME);
-  const id = record._id;
-  delete record._id;
-  return collection.updateOne({ _id: new ObjectId(id) }, { $set: record });
-};
-
-const deleteRecord = async (id) => {
-  if (!ObjectId.isValid(id)) return null;
-  const collection = await getCollection(COLLECTION_NAME);
-  return collection.deleteOne({ _id: new ObjectId(id) });
-};
+const COLLECTION_NAME = "25.records";
 
 export default async function handler(req, res) {
-  const allowedMethods = ['GET', 'POST', 'PUT', 'DELETE'];
-  if (!allowedMethods.includes(req.method)) {
-    return sendMethodNotAllowed(res);
+  const { database } = await connectToDatabase();
+  const collection = database.collection(COLLECTION_NAME);
+
+  if (req.method === "GET") {
+    const records = await collection.find({}).toArray();
+    return res.status(200).json({ data: records });
   }
 
-  try {
-    if (req.method === 'GET' && req.query.id) {
-      const id = req.query.id;
-      const record = await getRecord(id);
-      return sendOk(res, record);
+  if (req.method === "POST") {
+    const { title, author, year, tags } = req.body;
+
+    if (!title || !author || !year || !tags) {
+      return res.status(400).json({ error: "Toate câmpurile sunt necesare." });
     }
 
-    if (req.method === 'GET') {
-      const records = await getRecords();
-      return sendOk(res, records);
-    }
+    const newRecord = {
+      title,
+      author,
+      year: parseInt(year),
+      tags: Array.isArray(tags) ? tags : tags.split(",").map((t) => t.trim()),
+      createdAt: new Date(),
+    };
 
-    if (req.method === 'POST') {
-      const record = req.body;
-      const result = await postRecord(record);
-      return sendOk(res, result);
-    }
-
-    if (req.method === 'PUT') {
-      const record = req.body;
-      const result = await putRecord(record);
-      return sendOk(res, result);
-    }
-
-    if (req.method === 'DELETE') {
-      const id = req.query.id;
-      const result = await deleteRecord(id);
-      return sendOk(res, result);
-    }
-  } catch (error) {
-    console.error('API Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    const result = await collection.insertOne(newRecord);
+    return res.status(201).json({ success: true, insertedId: result.insertedId });
   }
+
+  if (req.method === "DELETE") {
+    const { ObjectId } = await import("mongodb");
+    const result = await collection.deleteOne({ _id: new ObjectId(req.query.id) });
+    return res.status(200).json({ success: true, deletedCount: result.deletedCount });
+  }
+
+  res.status(405).json({ error: "Method Not Allowed" });
 }
